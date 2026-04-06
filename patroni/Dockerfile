@@ -10,6 +10,8 @@
 FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
+# PostgreSQL 16 bins (initdb, pg_ctl, etc.) are here — Patroni needs them in PATH
+ENV PATH="/usr/lib/postgresql/16/bin:${PATH}"
 
 # Install PostgreSQL 16 from the official PGDG repository
 RUN apt-get update && \
