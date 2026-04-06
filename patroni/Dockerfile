@@ -22,7 +22,7 @@ RUN apt-get update && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
         postgresql-16 postgresql-client-16 && \
-    pip3 install --no-cache-dir "patroni[etcd3]" && \
+    pip3 install --no-cache-dir "patroni[etcd3]" psycopg2-binary && \
     rm -rf /var/lib/apt/lists/*
 
 # Create data directory and set postgres user as owner
