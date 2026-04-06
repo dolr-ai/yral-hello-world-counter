@@ -84,6 +84,41 @@ jobs:
           source: "etcd/stack.yml,patroni/stack.yml,haproxy/stack.yml,haproxy/haproxy.cfg"
           target: /home/deploy/counter-db-stack
 
+      # WHY pre-pull on every server?
+      # GHCR packages in a private org are private by default. Swarm's
+      # --with-registry-auth passes credentials from the manager to workers,
+      # but GITHUB_TOKEN expires after CI finishes. By pre-pulling on every
+      # server, the image is cached locally and Swarm doesn't need to pull.
+      - name: Pre-pull Patroni image on Server 1
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SERVER_1_IP }}
+          username: deploy
+          key: ${{ secrets.HETZNER_BARE_METAL_GITHUB_ACTIONS_SSH_PRIVATE_KEY }}
+          script: |
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            docker pull ghcr.io/dolr-ai/yral-hello-world-counter-patroni:latest
+
+      - name: Pre-pull Patroni image on Server 2
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SERVER_2_IP }}
+          username: deploy
+          key: ${{ secrets.HETZNER_BARE_METAL_GITHUB_ACTIONS_SSH_PRIVATE_KEY }}
+          script: |
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            docker pull ghcr.io/dolr-ai/yral-hello-world-counter-patroni:latest
+
+      - name: Pre-pull Patroni image on Server 3
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SERVER_3_IP }}
+          username: deploy
+          key: ${{ secrets.HETZNER_BARE_METAL_GITHUB_ACTIONS_SSH_PRIVATE_KEY }}
+          script: |
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            docker pull ghcr.io/dolr-ai/yral-hello-world-counter-patroni:latest
+
       - name: Deploy counter-db stack via Swarm manager
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -100,10 +135,6 @@ jobs:
             mv patroni/stack.yml ./patroni-stack.yml 2>/dev/null || true
             mv haproxy/stack.yml ./haproxy-stack.yml 2>/dev/null || true
             mv haproxy/haproxy.cfg ./haproxy.cfg 2>/dev/null || true
-
-            # Log in to GHCR so worker nodes can pull the patroni image
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io \
-              -u ${{ github.actor }} --password-stdin
 
             # Inject secrets for Patroni (environment variable substitution
             # in stack files requires these to be set in the shell)
