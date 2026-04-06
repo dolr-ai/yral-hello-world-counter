@@ -203,6 +203,9 @@ jobs:
           username: deploy
           key: ${{ secrets.HETZNER_BARE_METAL_GITHUB_ACTIONS_SSH_PRIVATE_KEY }}
           script: |
+            # Login to GHCR (private org packages need auth for every pull)
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
             # Pull latest image and restart counter app
             cd /home/deploy/yral-hello-world-counter
             docker compose pull
@@ -238,6 +241,8 @@ jobs:
           username: deploy
           key: ${{ secrets.HETZNER_BARE_METAL_GITHUB_ACTIONS_SSH_PRIVATE_KEY }}
           script: |
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
             cd /home/deploy/yral-hello-world-counter
             docker compose pull
             SENTRY_DSN="${{ secrets.SENTRY_DSN }}" \
