@@ -1,0 +1,81 @@
+# Docker Stack file for the Patroni + PostgreSQL cluster.
+# Deployed via CI with: docker stack deploy --compose-file patroni-stack.yml counter-db
+# (Same stack name "counter-db" as etcd — stack deploy merges all compose files together)
+#
+# WHY service names like "patroni-rishi-1"?
+# Swarm DNS automatically resolves service names on the overlay network.
+# Each Patroni node tells the others: "reach me at patroni-rishi-1:5432".
+# No hardcoded IPs — if a container restarts, the name still resolves. Clean.
+#
+# WHY no "ports:"?
+# Patroni (port 8008) and PostgreSQL (port 5432) are ONLY on db-internal.
+# The internet cannot reach them. HAProxy (also on db-internal) routes
+# app traffic to whichever Patroni node is currently the primary.
+
+version: "3.8"
+
+services:
+  patroni-rishi-1:
+    image: ghcr.io/dolr-ai/yral-hello-world-counter-patroni:latest
+    environment:
+      PATRONI_NAME: rishi-1
+      # PATRONI_SERVICE_NAME is used in patroni.yml for connect_address.
+      # It must match this service's name exactly so other nodes can reach it.
+      PATRONI_SERVICE_NAME: patroni-rishi-1
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+      REPLICATION_PASSWORD: "${REPLICATION_PASSWORD}"
+    volumes:
+      - patroni-rishi-1-data:/data/patroni
+    networks:
+      - db-internal
+    deploy:
+      placement:
+        constraints:
+          - node.labels.server == rishi-1
+      restart_policy:
+        condition: any
+
+  patroni-rishi-2:
+    image: ghcr.io/dolr-ai/yral-hello-world-counter-patroni:latest
+    environment:
+      PATRONI_NAME: rishi-2
+      PATRONI_SERVICE_NAME: patroni-rishi-2
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+      REPLICATION_PASSWORD: "${REPLICATION_PASSWORD}"
+    volumes:
+      - patroni-rishi-2-data:/data/patroni
+    networks:
+      - db-internal
+    deploy:
+      placement:
+        constraints:
+          - node.labels.server == rishi-2
+      restart_policy:
+        condition: any
+
+  patroni-rishi-3:
+    image: ghcr.io/dolr-ai/yral-hello-world-counter-patroni:latest
+    environment:
+      PATRONI_NAME: rishi-3
+      PATRONI_SERVICE_NAME: patroni-rishi-3
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+      REPLICATION_PASSWORD: "${REPLICATION_PASSWORD}"
+    volumes:
+      - patroni-rishi-3-data:/data/patroni
+    networks:
+      - db-internal
+    deploy:
+      placement:
+        constraints:
+          - node.labels.server == rishi-3
+      restart_policy:
+        condition: any
+
+networks:
+  db-internal:
+    external: true
+
+volumes:
+  patroni-rishi-1-data:
+  patroni-rishi-2-data:
+  patroni-rishi-3-data:

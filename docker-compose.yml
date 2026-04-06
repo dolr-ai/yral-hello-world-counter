@@ -1,0 +1,26 @@
+services:
+  yral-hello-world-counter:
+    image: ghcr.io/dolr-ai/yral-hello-world-counter:latest
+    container_name: yral-hello-world-counter
+    restart: unless-stopped
+    expose:
+      - "8000"
+    networks:
+      - web
+    environment:
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      # DATABASE_URL is server-specific:
+      #   rishi-1: postgresql://postgres:...@haproxy-rishi-1:5432/counter_db
+      #   rishi-2: postgresql://postgres:...@haproxy-rishi-2:5432/counter_db
+      # haproxy-rishi-X is a Swarm service on the "web" overlay network.
+      # It routes all DB connections to whichever PostgreSQL is currently primary.
+      DATABASE_URL: ${DATABASE_URL}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  web:
+    external: true

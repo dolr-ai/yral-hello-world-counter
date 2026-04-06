@@ -1,0 +1,71 @@
+# Patroni configuration — uses environment variables for service-specific values.
+# WHY env vars? The same stack.yml deploys to all 3 servers via Swarm placement.
+# Each node needs a different name and service address. We pass those as env vars.
+
+scope: counter-cluster   # All 3 nodes must have the same scope to form one cluster
+name: ${PATRONI_NAME}    # e.g. rishi-1, rishi-2, or rishi-3
+
+# REST API — Patroni exposes a status endpoint that HAProxy uses for health checks
+# GET /master → 200 if this node is primary, 503 if not
+restapi:
+  listen: 0.0.0.0:8008
+  # WHY PATRONI_SERVICE_NAME instead of SERVER_IP?
+  # On the Swarm db-internal overlay, containers reach each other by service name.
+  # "patroni-rishi-1" resolves to this container's overlay IP automatically.
+  # No hardcoded IPs anywhere — Docker-native, clean, and portable.
+  connect_address: ${PATRONI_SERVICE_NAME}:8008
+
+# Where Patroni stores cluster state — the etcd cluster
+# etcd service names resolve on the db-internal overlay network.
+etcd3:
+  hosts: etcd-rishi-1:2379,etcd-rishi-2:2379,etcd-rishi-3:2379
+
+# Bootstrap: runs ONCE on the first node to initialize the cluster
+bootstrap:
+  dcs:
+    ttl: 30                        # seconds a leader lease is valid
+    loop_wait: 10                  # seconds between Patroni health checks
+    retry_timeout: 10              # seconds to wait before retrying
+    maximum_lag_on_failover: 1048576  # 1MB: don't promote a node that's too far behind
+    postgresql:
+      use_pg_rewind: true          # allows a former primary to re-join as standby
+      parameters:
+        wal_level: replica
+        hot_standby: "on"
+        max_wal_senders: 10
+        max_replication_slots: 10
+  initdb:
+    - encoding: UTF8
+    - data-checksums
+  # post_init runs ONCE after the very first cluster bootstrap on the primary.
+  # It creates the counter_db database and the counter table.
+  # Standbys get this data automatically via replication — they don't run this script.
+  post_init: /scripts/post_init.sh
+  pg_hba:
+    # Allow replication from any IP on the db-internal overlay (overlay is private — safe)
+    - host replication replicator 0.0.0.0/0 md5
+    - host all all 0.0.0.0/0 md5
+
+# PostgreSQL configuration
+postgresql:
+  listen: 0.0.0.0:5432
+  connect_address: ${PATRONI_SERVICE_NAME}:5432  # Swarm DNS resolves this on db-internal
+  data_dir: /data/patroni
+  pgpass: /tmp/.pgpass               # file to store passwords for pg_rewind
+  authentication:
+    replication:
+      username: replicator
+      password: ${REPLICATION_PASSWORD}
+    superuser:
+      username: postgres
+      password: ${POSTGRES_PASSWORD}
+    rewind:
+      username: rewind_user
+      password: ${POSTGRES_PASSWORD}
+  parameters:
+    unix_socket_directories: '.'
+    max_connections: 100
+
+tags:
+  nofailover: false
+  noloadbalance: false
