@@ -9,11 +9,9 @@ name: ${PATRONI_NAME}    # e.g. rishi-1, rishi-2, or rishi-3
 # GET /master → 200 if this node is primary, 503 if not
 restapi:
   listen: 0.0.0.0:8008
-  # WHY PATRONI_SERVICE_NAME instead of SERVER_IP?
-  # On the Swarm db-internal overlay, containers reach each other by service name.
-  # "patroni-rishi-1" resolves to this container's overlay IP automatically.
-  # No hardcoded IPs anywhere — Docker-native, clean, and portable.
-  connect_address: ${PATRONI_SERVICE_NAME}:8008
+  # connect_address is set via PATRONI_RESTAPI_CONNECT_ADDRESS env var
+  # in each service's stack.yml entry (e.g., patroni-rishi-1:8008).
+  # Patroni's native env var convention: PATRONI_<SECTION>_<KEY> overrides YAML.
 
 # Where Patroni stores cluster state — the etcd cluster
 # etcd service names resolve on the db-internal overlay network.
@@ -49,7 +47,8 @@ bootstrap:
 # PostgreSQL configuration
 postgresql:
   listen: 0.0.0.0:5432
-  connect_address: ${PATRONI_SERVICE_NAME}:5432  # Swarm DNS resolves this on db-internal
+  # connect_address is set via PATRONI_POSTGRESQL_CONNECT_ADDRESS env var
+  # in each service's stack.yml entry (e.g., patroni-rishi-1:5432).
   data_dir: /data/patroni
   pgpass: /tmp/.pgpass               # file to store passwords for pg_rewind
   authentication:

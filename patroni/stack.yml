@@ -19,9 +19,10 @@ services:
     image: ghcr.io/dolr-ai/yral-hello-world-counter-patroni:latest
     environment:
       PATRONI_NAME: rishi-1
-      # PATRONI_SERVICE_NAME is used in patroni.yml for connect_address.
-      # It must match this service's name exactly so other nodes can reach it.
-      PATRONI_SERVICE_NAME: patroni-rishi-1
+      # Patroni's native env var convention: PATRONI_<SECTION>_<KEY> overrides YAML.
+      # These tell other Patroni nodes how to reach this one on the overlay network.
+      PATRONI_RESTAPI_CONNECT_ADDRESS: "patroni-rishi-1:8008"
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: "patroni-rishi-1:5432"
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
       REPLICATION_PASSWORD: "${REPLICATION_PASSWORD}"
     volumes:
@@ -39,7 +40,8 @@ services:
     image: ghcr.io/dolr-ai/yral-hello-world-counter-patroni:latest
     environment:
       PATRONI_NAME: rishi-2
-      PATRONI_SERVICE_NAME: patroni-rishi-2
+      PATRONI_RESTAPI_CONNECT_ADDRESS: "patroni-rishi-2:8008"
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: "patroni-rishi-2:5432"
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
       REPLICATION_PASSWORD: "${REPLICATION_PASSWORD}"
     volumes:
@@ -57,7 +59,8 @@ services:
     image: ghcr.io/dolr-ai/yral-hello-world-counter-patroni:latest
     environment:
       PATRONI_NAME: rishi-3
-      PATRONI_SERVICE_NAME: patroni-rishi-3
+      PATRONI_RESTAPI_CONNECT_ADDRESS: "patroni-rishi-3:8008"
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: "patroni-rishi-3:5432"
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
       REPLICATION_PASSWORD: "${REPLICATION_PASSWORD}"
     volumes:
