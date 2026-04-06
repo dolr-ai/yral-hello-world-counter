@@ -1,10 +1,10 @@
 # Docker Stack file for HAProxy.
 # Deployed via CI with: docker stack deploy --compose-file haproxy-stack.yml counter-db
 #
-# WHY HAProxy on BOTH the "web" AND "db-internal" networks?
-# - "web": the counter app (also on web) connects to haproxy-rishi-X:5432 for database queries
-# - "db-internal": HAProxy must reach the Patroni nodes to health-check /master and
-#   route SQL connections to whichever PostgreSQL is the current primary
+# HAProxy is ONLY on db-internal (the private overlay network).
+# It reaches Patroni nodes for health-checks and routes SQL connections
+# to the current primary. The counter app also joins db-internal
+# (via --network db-internal in docker compose) so it can reach HAProxy.
 #
 # WHY two pinned services instead of replicas=2?
 # With replicas=2, Swarm might place both on the same server (if one server is
@@ -24,7 +24,6 @@ services:
       - source: haproxy_cfg
         target: /usr/local/etc/haproxy/haproxy.cfg
     networks:
-      - web
       - db-internal
     deploy:
       placement:
@@ -39,7 +38,6 @@ services:
       - source: haproxy_cfg
         target: /usr/local/etc/haproxy/haproxy.cfg
     networks:
-      - web
       - db-internal
     deploy:
       placement:
@@ -53,7 +51,5 @@ configs:
     file: ./haproxy.cfg
 
 networks:
-  web:
-    external: true
   db-internal:
     external: true

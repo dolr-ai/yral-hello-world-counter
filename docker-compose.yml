@@ -7,13 +7,15 @@ services:
       - "8000"
     networks:
       - web
+      - db-internal
     environment:
       SENTRY_DSN: ${SENTRY_DSN:-}
       # DATABASE_URL is server-specific:
       #   rishi-1: postgresql://postgres:...@haproxy-rishi-1:5432/counter_db
       #   rishi-2: postgresql://postgres:...@haproxy-rishi-2:5432/counter_db
-      # haproxy-rishi-X is a Swarm service on the "web" overlay network.
-      # It routes all DB connections to whichever PostgreSQL is currently primary.
+      # haproxy-rishi-X is a Swarm service on the db-internal overlay network.
+      # The app joins db-internal (attachable overlay) so it can reach HAProxy.
+      # HAProxy routes all DB connections to whichever PostgreSQL is currently primary.
       DATABASE_URL: ${DATABASE_URL}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -23,4 +25,6 @@ services:
 
 networks:
   web:
+    external: true
+  db-internal:
     external: true
