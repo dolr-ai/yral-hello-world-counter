@@ -1,38 +1,41 @@
 # Docker Stack file for the Patroni + PostgreSQL cluster.
 # Deployed via CI with: docker stack deploy --compose-file patroni-stack.yml counter-db
-# (Same stack name "counter-db" as etcd — stack deploy merges all compose files together)
 #
 # WHY service names like "patroni-rishi-1"?
 # Swarm DNS automatically resolves service names on the overlay network.
 # Each Patroni node tells the others: "reach me at patroni-rishi-1:5432".
-# No hardcoded IPs — if a container restarts, the name still resolves. Clean.
 #
 # WHY no "ports:"?
-# Patroni (port 8008) and PostgreSQL (port 5432) are ONLY on db-internal.
-# The internet cannot reach them. HAProxy (also on db-internal) routes
-# app traffic to whichever Patroni node is currently the primary.
+# Patroni and PostgreSQL are ONLY on db-internal — invisible to the internet.
+# HAProxy (also on db-internal) routes app traffic to the current primary.
+#
+# WHY Docker Swarm secrets instead of env vars?
+# Env vars are visible in `docker inspect` and `docker service inspect` to
+# anyone in the docker group. Secrets are mounted as files in /run/secrets/
+# (tmpfs) and never appear in any inspect output. The entrypoint.sh in the
+# Patroni image reads them and exports as env vars only inside the container.
+#
+# WHY ${IMAGE_TAG:-latest}?
+# CI sets IMAGE_TAG to the git SHA so we have immutable, rollback-able images.
+# Falls back to :latest if not set (e.g. when running locally).
 
 version: "3.8"
 
 services:
   patroni-rishi-1:
-    image: ghcr.io/dolr-ai/yral-hello-world-counter-patroni:latest
+    image: ghcr.io/dolr-ai/yral-hello-world-counter-patroni:${IMAGE_TAG:-latest}
     environment:
       PATRONI_NAME: rishi-1
-      # Patroni's native env var convention: PATRONI_<SECTION>_<KEY> overrides YAML.
-      # These tell other Patroni nodes how to reach this one on the overlay network.
+      # Patroni native env vars: tells other nodes how to reach this one
       PATRONI_RESTAPI_CONNECT_ADDRESS: "patroni-rishi-1:8008"
       PATRONI_POSTGRESQL_CONNECT_ADDRESS: "patroni-rishi-1:5432"
-      # post_init.sh reads these to set passwords via SQL
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
-      REPLICATION_PASSWORD: "${REPLICATION_PASSWORD}"
-      # Patroni's native auth env vars (override patroni.yml)
+      # Patroni native auth — usernames are non-sensitive (passwords come from secrets)
       PATRONI_SUPERUSER_USERNAME: postgres
-      PATRONI_SUPERUSER_PASSWORD: "${POSTGRES_PASSWORD}"
       PATRONI_REPLICATION_USERNAME: replicator
-      PATRONI_REPLICATION_PASSWORD: "${REPLICATION_PASSWORD}"
       PATRONI_REWIND_USERNAME: rewind_user
-      PATRONI_REWIND_PASSWORD: "${POSTGRES_PASSWORD}"
+    secrets:
+      - postgres_password
+      - replication_password
     volumes:
       - patroni-rishi-1-data:/data/patroni
     networks:
@@ -45,21 +48,17 @@ services:
         condition: any
 
   patroni-rishi-2:
-    image: ghcr.io/dolr-ai/yral-hello-world-counter-patroni:latest
+    image: ghcr.io/dolr-ai/yral-hello-world-counter-patroni:${IMAGE_TAG:-latest}
     environment:
       PATRONI_NAME: rishi-2
       PATRONI_RESTAPI_CONNECT_ADDRESS: "patroni-rishi-2:8008"
       PATRONI_POSTGRESQL_CONNECT_ADDRESS: "patroni-rishi-2:5432"
-      # post_init.sh reads these to set passwords via SQL
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
-      REPLICATION_PASSWORD: "${REPLICATION_PASSWORD}"
-      # Patroni's native auth env vars (override patroni.yml)
       PATRONI_SUPERUSER_USERNAME: postgres
-      PATRONI_SUPERUSER_PASSWORD: "${POSTGRES_PASSWORD}"
       PATRONI_REPLICATION_USERNAME: replicator
-      PATRONI_REPLICATION_PASSWORD: "${REPLICATION_PASSWORD}"
       PATRONI_REWIND_USERNAME: rewind_user
-      PATRONI_REWIND_PASSWORD: "${POSTGRES_PASSWORD}"
+    secrets:
+      - postgres_password
+      - replication_password
     volumes:
       - patroni-rishi-2-data:/data/patroni
     networks:
@@ -72,21 +71,17 @@ services:
         condition: any
 
   patroni-rishi-3:
-    image: ghcr.io/dolr-ai/yral-hello-world-counter-patroni:latest
+    image: ghcr.io/dolr-ai/yral-hello-world-counter-patroni:${IMAGE_TAG:-latest}
     environment:
       PATRONI_NAME: rishi-3
       PATRONI_RESTAPI_CONNECT_ADDRESS: "patroni-rishi-3:8008"
       PATRONI_POSTGRESQL_CONNECT_ADDRESS: "patroni-rishi-3:5432"
-      # post_init.sh reads these to set passwords via SQL
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
-      REPLICATION_PASSWORD: "${REPLICATION_PASSWORD}"
-      # Patroni's native auth env vars (override patroni.yml)
       PATRONI_SUPERUSER_USERNAME: postgres
-      PATRONI_SUPERUSER_PASSWORD: "${POSTGRES_PASSWORD}"
       PATRONI_REPLICATION_USERNAME: replicator
-      PATRONI_REPLICATION_PASSWORD: "${REPLICATION_PASSWORD}"
       PATRONI_REWIND_USERNAME: rewind_user
-      PATRONI_REWIND_PASSWORD: "${POSTGRES_PASSWORD}"
+    secrets:
+      - postgres_password
+      - replication_password
     volumes:
       - patroni-rishi-3-data:/data/patroni
     networks:
@@ -97,6 +92,13 @@ services:
           - node.labels.server == rishi-3
       restart_policy:
         condition: any
+
+# Docker Swarm secrets — created externally by CI before stack deploy
+secrets:
+  postgres_password:
+    external: true
+  replication_password:
+    external: true
 
 networks:
   db-internal:

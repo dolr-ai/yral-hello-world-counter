@@ -1,6 +1,17 @@
+# Counter app — runs on rishi-1 and rishi-2 via plain docker-compose (not Swarm).
+#
+# WHY ${IMAGE_TAG:-latest}?
+# CI exports IMAGE_TAG=<git sha> for immutable, rollback-able image versions.
+# Falls back to :latest for local dev.
+#
+# WHY a secret file for DATABASE_URL?
+# DATABASE_URL contains the postgres password. Env vars are visible in
+# `docker inspect`. Mounting it as a file in /run/secrets/ keeps it out of
+# inspect output. CI writes ./secrets/database_url before running compose up.
+
 services:
   yral-hello-world-counter:
-    image: ghcr.io/dolr-ai/yral-hello-world-counter:latest
+    image: ghcr.io/dolr-ai/yral-hello-world-counter:${IMAGE_TAG:-latest}
     container_name: yral-hello-world-counter
     restart: unless-stopped
     expose:
@@ -9,19 +20,22 @@ services:
       - web
       - db-internal
     environment:
+      # SENTRY_DSN is not a critical secret (it only allows sending events,
+      # not reading them) so an env var is acceptable.
       SENTRY_DSN: ${SENTRY_DSN:-}
-      # DATABASE_URL is server-specific:
-      #   rishi-1: postgresql://postgres:...@haproxy-rishi-1:5432/counter_db
-      #   rishi-2: postgresql://postgres:...@haproxy-rishi-2:5432/counter_db
-      # haproxy-rishi-X is a Swarm service on the db-internal overlay network.
-      # The app joins db-internal (attachable overlay) so it can reach HAProxy.
-      # HAProxy routes all DB connections to whichever PostgreSQL is currently primary.
-      DATABASE_URL: ${DATABASE_URL}
+    secrets:
+      - database_url
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+
+secrets:
+  # CI writes ./secrets/database_url with the server-specific connection string
+  # (haproxy-rishi-1 vs haproxy-rishi-2) before docker compose up.
+  database_url:
+    file: ./secrets/database_url
 
 networks:
   web:

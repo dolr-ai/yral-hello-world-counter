@@ -14,6 +14,21 @@ set -e
 
 CONN="$1"
 
+# Read passwords from Docker Swarm secrets (preferred) or env vars (fallback).
+# The entrypoint already exported these when called by Patroni, but post_init.sh
+# may run in a fresh subshell so we re-read them here to be safe.
+if [ -f /run/secrets/postgres_password ]; then
+    POSTGRES_PASSWORD=$(cat /run/secrets/postgres_password)
+fi
+if [ -f /run/secrets/replication_password ]; then
+    REPLICATION_PASSWORD=$(cat /run/secrets/replication_password)
+fi
+
+if [ -z "$POSTGRES_PASSWORD" ] || [ -z "$REPLICATION_PASSWORD" ]; then
+    echo "FATAL: POSTGRES_PASSWORD or REPLICATION_PASSWORD not set"
+    exit 1
+fi
+
 echo "==> Running post-bootstrap initialization..."
 
 # Set the postgres superuser password for remote (md5) connections.
@@ -26,9 +41,15 @@ echo "==> Set postgres password for remote auth"
 psql "$CONN" -c "CREATE USER replicator WITH REPLICATION PASSWORD '${REPLICATION_PASSWORD}';"
 echo "==> Created replicator user"
 
-# Create the rewind user (used by Patroni's pg_rewind to rejoin a former primary)
-psql "$CONN" -c "CREATE USER rewind_user WITH SUPERUSER PASSWORD '${POSTGRES_PASSWORD}';"
-echo "==> Created rewind_user"
+# Create the rewind user with MINIMUM privileges needed for pg_rewind.
+# Per Patroni docs: https://patroni.readthedocs.io/en/latest/security.html
+# Just LOGIN + execute on a few catalog functions. NOT a superuser.
+psql "$CONN" -c "CREATE USER rewind_user WITH PASSWORD '${POSTGRES_PASSWORD}' LOGIN;"
+psql "$CONN" -c "GRANT EXECUTE ON function pg_catalog.pg_ls_dir(text, boolean, boolean) TO rewind_user;"
+psql "$CONN" -c "GRANT EXECUTE ON function pg_catalog.pg_stat_file(text, boolean) TO rewind_user;"
+psql "$CONN" -c "GRANT EXECUTE ON function pg_catalog.pg_read_binary_file(text) TO rewind_user;"
+psql "$CONN" -c "GRANT EXECUTE ON function pg_catalog.pg_read_binary_file(text, bigint, bigint, boolean) TO rewind_user;"
+echo "==> Created rewind_user (minimum privileges, NOT superuser)"
 
 # Create the counter_db database
 psql "$CONN" -c "CREATE DATABASE counter_db;"

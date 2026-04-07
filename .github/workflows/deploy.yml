@@ -7,9 +7,8 @@ on:
 
 jobs:
   # ============================================================================
-  # JOB 1: Build TWO Docker images and push to GHCR
-  #   - The counter FastAPI app
-  #   - The Patroni+PostgreSQL image (custom, built from patroni/Dockerfile)
+  # JOB 1: Build images and push to GHCR.
+  # Tagged with both :latest (alias) and :${git-sha} (immutable).
   # ============================================================================
   build-and-push:
     name: Build and push Docker images
@@ -34,38 +33,22 @@ jobs:
         with:
           context: .
           push: true
-          tags: ghcr.io/dolr-ai/yral-hello-world-counter:latest
+          tags: |
+            ghcr.io/dolr-ai/yral-hello-world-counter:latest
+            ghcr.io/dolr-ai/yral-hello-world-counter:${{ github.sha }}
 
       - name: Build and push Patroni image
         uses: docker/build-push-action@v6
         with:
           context: ./patroni
           push: true
-          tags: ghcr.io/dolr-ai/yral-hello-world-counter-patroni:latest
+          tags: |
+            ghcr.io/dolr-ai/yral-hello-world-counter-patroni:latest
+            ghcr.io/dolr-ai/yral-hello-world-counter-patroni:${{ github.sha }}
 
   # ============================================================================
-  # JOB 2: Deploy etcd + Patroni + HAProxy as a single Swarm stack "counter-db"
-  #
-  # WHY docker stack deploy instead of docker compose up?
-  # "docker stack deploy" is the Swarm-native command. It understands:
-  #   - placement constraints (pin containers to specific servers)
-  #   - overlay networks (cross-server private networking)
-  # Regular docker compose up does not support either of these.
-  #
-  # WHY only SSH into rishi-1 (the Swarm manager)?
-  # "docker stack deploy" is run on the Swarm manager. The manager then
-  # distributes each service to the correct server based on placement
-  # constraints. You only need ONE SSH connection to deploy to ALL 3 servers.
-  # This is much simpler than the old approach of SSHing into each server.
-  #
-  # WHY --with-registry-auth?
-  # Our Patroni image is in GHCR (private registry). The Swarm manager passes
-  # auth credentials to worker nodes so they can pull the image directly.
-  #
-  # WHY are etcd and Patroni NOT restarted every deploy?
-  # docker stack deploy updates services only if their image or config changed.
-  # etcd stores cluster state on disk; unnecessary restarts cause brief
-  # unavailability. Patroni restarting = PostgreSQL restarting = downtime.
+  # JOB 2: Deploy etcd + Patroni + HAProxy as Swarm stack "counter-db".
+  # Pre-pulls the Patroni image on each server (private GHCR auth issue).
   # ============================================================================
   deploy-db-stack:
     name: Deploy etcd + Patroni + HAProxy (Swarm stack)
@@ -75,20 +58,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Copy stack files to Swarm manager (rishi-1)
+      - name: Copy stack files + CI scripts to Swarm manager (rishi-1)
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SERVER_1_IP }}
           username: deploy
           key: ${{ secrets.HETZNER_BARE_METAL_GITHUB_ACTIONS_SSH_PRIVATE_KEY }}
-          source: "etcd/stack.yml,patroni/stack.yml,haproxy/stack.yml,haproxy/haproxy.cfg"
+          source: "etcd/stack.yml,patroni/stack.yml,haproxy/stack.yml,haproxy/haproxy.cfg,scripts/ci/deploy-db-stack.sh"
           target: /home/deploy/counter-db-stack
 
-      # WHY pre-pull on every server?
-      # GHCR packages in a private org are private by default. Swarm's
-      # --with-registry-auth passes credentials from the manager to workers,
-      # but GITHUB_TOKEN expires after CI finishes. By pre-pulling on every
-      # server, the image is cached locally and Swarm doesn't need to pull.
       - name: Pre-pull Patroni image on Server 1
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -97,7 +75,7 @@ jobs:
           key: ${{ secrets.HETZNER_BARE_METAL_GITHUB_ACTIONS_SSH_PRIVATE_KEY }}
           script: |
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-            docker pull ghcr.io/dolr-ai/yral-hello-world-counter-patroni:latest
+            docker pull ghcr.io/dolr-ai/yral-hello-world-counter-patroni:${{ github.sha }}
 
       - name: Pre-pull Patroni image on Server 2
         uses: appleboy/ssh-action@v1.2.0
@@ -107,7 +85,7 @@ jobs:
           key: ${{ secrets.HETZNER_BARE_METAL_GITHUB_ACTIONS_SSH_PRIVATE_KEY }}
           script: |
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-            docker pull ghcr.io/dolr-ai/yral-hello-world-counter-patroni:latest
+            docker pull ghcr.io/dolr-ai/yral-hello-world-counter-patroni:${{ github.sha }}
 
       - name: Pre-pull Patroni image on Server 3
         uses: appleboy/ssh-action@v1.2.0
@@ -117,7 +95,7 @@ jobs:
           key: ${{ secrets.HETZNER_BARE_METAL_GITHUB_ACTIONS_SSH_PRIVATE_KEY }}
           script: |
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-            docker pull ghcr.io/dolr-ai/yral-hello-world-counter-patroni:latest
+            docker pull ghcr.io/dolr-ai/yral-hello-world-counter-patroni:${{ github.sha }}
 
       - name: Deploy counter-db stack via Swarm manager
         uses: appleboy/ssh-action@v1.2.0
@@ -125,55 +103,19 @@ jobs:
           host: ${{ secrets.SERVER_1_IP }}
           username: deploy
           key: ${{ secrets.HETZNER_BARE_METAL_GITHUB_ACTIONS_SSH_PRIVATE_KEY }}
+          envs: IMAGE_TAG,POSTGRES_PASSWORD,REPLICATION_PASSWORD,GITHUB_TOKEN,GITHUB_ACTOR
           script: |
-            mkdir -p /home/deploy/counter-db-stack
-            cd /home/deploy/counter-db-stack
-
-            # SCP preserves directory structure (etcd/stack.yml, etc.)
-            # Move files flat so stack deploy can find them by relative path.
-            mv etcd/stack.yml ./etcd-stack.yml 2>/dev/null || true
-            mv patroni/stack.yml ./patroni-stack.yml 2>/dev/null || true
-            mv haproxy/stack.yml ./haproxy-stack.yml 2>/dev/null || true
-            mv haproxy/haproxy.cfg ./haproxy.cfg 2>/dev/null || true
-
-            # Inject secrets for Patroni (environment variable substitution
-            # in stack files requires these to be set in the shell)
-            export POSTGRES_PASSWORD="${{ secrets.POSTGRES_PASSWORD }}"
-            export REPLICATION_PASSWORD="${{ secrets.REPLICATION_PASSWORD }}"
-
-            # Deploy (or update) the stack.
-            # This is idempotent: running again only restarts services whose
-            # image or config actually changed. etcd and Patroni are stable.
-            docker stack deploy \
-              --with-registry-auth \
-              --compose-file etcd-stack.yml \
-              --compose-file patroni-stack.yml \
-              --compose-file haproxy-stack.yml \
-              counter-db
-
-            echo ""
-            echo "Stack deployed. Service status:"
-            docker stack services counter-db
+            chmod +x /home/deploy/counter-db-stack/scripts/ci/deploy-db-stack.sh
+            /home/deploy/counter-db-stack/scripts/ci/deploy-db-stack.sh
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          REPLICATION_PASSWORD: ${{ secrets.REPLICATION_PASSWORD }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
 
   # ============================================================================
-  # JOB 3: Deploy counter app + Caddy to rishi-1 and rishi-2
-  #
-  # WHY regular docker compose (not Swarm stack) for the app?
-  # The counter app is stateless — no cross-server data. It just needs:
-  #   - The "web" Docker network (already exists on both servers)
-  #   - DATABASE_URL pointing to its local HAProxy (haproxy-rishi-1 or haproxy-rishi-2)
-  # Swarm stack would add unnecessary complexity for a simple stateless app.
-  #
-  # WHY different DATABASE_URL per server?
-  # Swarm has two HAProxy instances: haproxy-rishi-1 (on rishi-1) and
-  # haproxy-rishi-2 (on rishi-2). The app on rishi-1 must connect to
-  # haproxy-rishi-1, and vice versa. So each server gets its own DATABASE_URL
-  # secret (DATABASE_URL_SERVER_1 and DATABASE_URL_SERVER_2).
-  #
-  # WHY after deploy-db-stack?
-  # HAProxy health-checks Patroni's /master endpoint. If Patroni isn't running
-  # yet, HAProxy has no healthy backends → app can't connect to DB → health check
-  # fails. Waiting ensures the DB layer is up before the app starts.
+  # JOB 3: Deploy counter app + Caddy to rishi-1 and rishi-2.
   # ============================================================================
   deploy-app:
     name: Deploy counter app + Caddy to rishi-1 and rishi-2
@@ -183,17 +125,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ========================================================================
-      # SERVER 1
-      # ========================================================================
-
-      - name: Copy app + Caddy config to Server 1
+      # ---------- SERVER 1 ----------
+      - name: Copy app + Caddy + CI scripts to Server 1
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SERVER_1_IP }}
           username: deploy
           key: ${{ secrets.HETZNER_BARE_METAL_GITHUB_ACTIONS_SSH_PRIVATE_KEY }}
-          source: "docker-compose.yml,caddy/Caddyfile,caddy/docker-compose.yml"
+          source: "docker-compose.yml,caddy/Caddyfile,caddy/docker-compose.yml,scripts/ci/deploy-app.sh"
           target: /home/deploy/yral-hello-world-counter
 
       - name: Deploy app + Caddy on Server 1
@@ -202,36 +141,25 @@ jobs:
           host: ${{ secrets.SERVER_1_IP }}
           username: deploy
           key: ${{ secrets.HETZNER_BARE_METAL_GITHUB_ACTIONS_SSH_PRIVATE_KEY }}
+          envs: IMAGE_TAG,DATABASE_URL,SENTRY_DSN,GITHUB_TOKEN,GITHUB_ACTOR
           script: |
-            # Login to GHCR (private org packages need auth for every pull)
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            chmod +x /home/deploy/yral-hello-world-counter/scripts/ci/deploy-app.sh
+            /home/deploy/yral-hello-world-counter/scripts/ci/deploy-app.sh
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL_SERVER_1 }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
 
-            # Pull latest image and restart counter app
-            cd /home/deploy/yral-hello-world-counter
-            docker compose pull
-            SENTRY_DSN="${{ secrets.SENTRY_DSN }}" \
-            DATABASE_URL="${{ secrets.DATABASE_URL_SERVER_1 }}" \
-            docker compose up -d
-
-            # Reload Caddy config (zero-downtime)
-            mkdir -p /home/deploy/caddy
-            cp caddy/Caddyfile /home/deploy/caddy/Caddyfile
-            cp caddy/docker-compose.yml /home/deploy/caddy/docker-compose.yml
-            cd /home/deploy/caddy
-            docker compose up -d
-            docker exec caddy caddy reload --config /etc/caddy/Caddyfile --force
-
-      # ========================================================================
-      # SERVER 2
-      # ========================================================================
-
-      - name: Copy app + Caddy config to Server 2
+      # ---------- SERVER 2 ----------
+      - name: Copy app + Caddy + CI scripts to Server 2
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SERVER_2_IP }}
           username: deploy
           key: ${{ secrets.HETZNER_BARE_METAL_GITHUB_ACTIONS_SSH_PRIVATE_KEY }}
-          source: "docker-compose.yml,caddy/Caddyfile,caddy/docker-compose.yml"
+          source: "docker-compose.yml,caddy/Caddyfile,caddy/docker-compose.yml,scripts/ci/deploy-app.sh"
           target: /home/deploy/yral-hello-world-counter
 
       - name: Deploy app + Caddy on Server 2
@@ -240,27 +168,18 @@ jobs:
           host: ${{ secrets.SERVER_2_IP }}
           username: deploy
           key: ${{ secrets.HETZNER_BARE_METAL_GITHUB_ACTIONS_SSH_PRIVATE_KEY }}
+          envs: IMAGE_TAG,DATABASE_URL,SENTRY_DSN,GITHUB_TOKEN,GITHUB_ACTOR
           script: |
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            chmod +x /home/deploy/yral-hello-world-counter/scripts/ci/deploy-app.sh
+            /home/deploy/yral-hello-world-counter/scripts/ci/deploy-app.sh
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL_SERVER_2 }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
 
-            cd /home/deploy/yral-hello-world-counter
-            docker compose pull
-            SENTRY_DSN="${{ secrets.SENTRY_DSN }}" \
-            DATABASE_URL="${{ secrets.DATABASE_URL_SERVER_2 }}" \
-            docker compose up -d
-
-            mkdir -p /home/deploy/caddy
-            cp caddy/Caddyfile /home/deploy/caddy/Caddyfile
-            cp caddy/docker-compose.yml /home/deploy/caddy/docker-compose.yml
-            cd /home/deploy/caddy
-            docker compose up -d
-            docker exec caddy caddy reload --config /etc/caddy/Caddyfile --force
-
-      # ========================================================================
-      # VERIFY — hit each app server directly (bypass Cloudflare)
-      # Uses the Host header so Caddy routes to the right virtual host.
-      # ========================================================================
-
+      # ---------- VERIFY ----------
       - name: Verify Server 1 health
         uses: appleboy/ssh-action@v1.2.0
         with:

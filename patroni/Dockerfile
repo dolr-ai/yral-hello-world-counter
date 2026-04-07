@@ -39,10 +39,14 @@ RUN mkdir -p /data/patroni /scripts && \
 COPY patroni.yml /etc/patroni.yml
 COPY init.sql /scripts/init.sql
 COPY post_init.sh /scripts/post_init.sh
-RUN chmod +x /scripts/post_init.sh
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /scripts/post_init.sh /entrypoint.sh
 
 # Run as postgres user (never as root)
 USER postgres
 
-# Patroni manages PostgreSQL — just start patroni
+# Entrypoint reads Docker Swarm secrets and exports them as env vars,
+# then execs the CMD. This is how Patroni gets passwords without them
+# being visible in `docker inspect`.
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["patroni", "/etc/patroni.yml"]
