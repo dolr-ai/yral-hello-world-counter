@@ -27,9 +27,11 @@ RUN apt-get update && \
     pip3 install --no-cache-dir "patroni[etcd3]" psycopg2-binary && \
     rm -rf /var/lib/apt/lists/*
 
-# Create data directory and set postgres user as owner
+# Create data directory and set postgres user as owner.
+# /data must also be writable by postgres because Patroni renames /data/patroni
+# to /data/patroni.failed if bootstrap fails — that requires write on /data parent.
 RUN mkdir -p /data/patroni /scripts && \
-    chown -R postgres:postgres /data/patroni /scripts
+    chown -R postgres:postgres /data /data/patroni /scripts
 
 # Copy config and scripts
 COPY patroni.yml /etc/patroni.yml
