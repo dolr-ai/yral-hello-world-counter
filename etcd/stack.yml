@@ -109,8 +109,17 @@ services:
         failure_action: rollback
 
 networks:
+  # Per-project overlay network — created and managed BY THIS STACK.
+  # WHY per-project instead of a shared network?
+  # Multiple stacks on the same overlay network can have DNS resolution
+  # conflicts when they share short service names like "etcd-rishi-1".
+  # Per-project networks isolate them completely. The `name:` is the
+  # actual Docker network name; the YAML key `db-internal` is just this
+  # file's local reference. The app's docker-compose.yml uses `name:` too.
   db-internal:
-    external: true   # Created once by swarm-setup.sh. Not managed by this stack.
+    driver: overlay
+    attachable: true
+    name: counter-db-internal
 
 volumes:
   etcd-rishi-1-data:

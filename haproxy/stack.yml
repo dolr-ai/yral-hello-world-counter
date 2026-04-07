@@ -51,5 +51,9 @@ configs:
     file: ./haproxy.cfg
 
 networks:
+  # Same definition as in etcd/stack.yml and patroni/stack.yml — all 3
+  # files are merged into one stack so the network must agree.
   db-internal:
-    external: true
+    driver: overlay
+    attachable: true
+    name: counter-db-internal

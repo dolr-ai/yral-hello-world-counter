@@ -46,3 +46,4 @@ networks:
     external: true
   db-internal:
     external: true
+    name: counter-db-internal

@@ -130,8 +130,13 @@ secrets:
     name: counter-db_replication_password
 
 networks:
+  # Same definition as in etcd/stack.yml — the 3 stack files are merged
+  # by `docker stack deploy --compose-file ... --compose-file ...`, so
+  # all references to this network must agree.
   db-internal:
-    external: true
+    driver: overlay
+    attachable: true
+    name: counter-db-internal
 
 volumes:
   patroni-rishi-1-data:
