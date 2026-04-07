@@ -1,5 +1,6 @@
 import os
 import psycopg2
+from psycopg2 import OperationalError, InterfaceError
 from psycopg2.pool import ThreadedConnectionPool
 
 
@@ -19,17 +20,76 @@ def _read_database_url() -> str:
     return os.environ["DATABASE_URL"]
 
 
+# Add TCP keepalives to detect dead connections within ~60 seconds.
+# WHY keepalives?
+# Without them, a connection can sit "open" for hours after the network path
+# died (Patroni failover, HAProxy backend swap, NAT timeout). The OS default
+# is ~2 hours before the kernel notices. With these settings:
+#   - Idle connections start sending keepalive probes after 30 seconds
+#   - Probes every 10 seconds
+#   - 3 missed probes = connection dead
+#   - Total: ~60 seconds to detect a dead connection
 DATABASE_URL = _read_database_url()
+_KEEPALIVE_OPTS = "keepalives=1&keepalives_idle=30&keepalives_interval=10&keepalives_count=3"
+DATABASE_URL = (
+    f"{DATABASE_URL}&{_KEEPALIVE_OPTS}"
+    if "?" in DATABASE_URL
+    else f"{DATABASE_URL}?{_KEEPALIVE_OPTS}"
+)
 
-# Connection pool — shared across all FastAPI requests.
-# WHY pool instead of fresh connections?
-# Opening a PG connection takes 5-50ms (TCP + TLS + auth). With a pool we
-# pay that cost once at startup and reuse the connection. ThreadedConnectionPool
-# is safe for FastAPI's threadpool execution model.
-#
-# minconn=2:  always keep 2 connections warm
-# maxconn=10: scale up to 10 under load (per app container)
+# Connection pool shared across all FastAPI requests.
+# minconn=2:  keep 2 connections warm so the first request after idle is fast
+# maxconn=10: scale up to 10 under concurrent load (per app container)
 _pool = ThreadedConnectionPool(minconn=2, maxconn=10, dsn=DATABASE_URL)
+
+
+def _execute_with_retry(operation, max_attempts: int = 3):
+    """
+    Run a database operation with retry-on-dead-connection logic.
+
+    WHY this exists:
+    psycopg2's ThreadedConnectionPool does NOT validate connections before
+    returning them. If a connection in the pool died (Patroni failover,
+    network blip, idle timeout), getconn() happily returns the dead one and
+    the next query fails with OperationalError or InterfaceError.
+
+    This wrapper:
+      1. Gets a connection from the pool
+      2. Tries the operation
+      3. On connection error: closes the dead connection (removes it from pool),
+         gets a fresh one, retries
+      4. After max_attempts, gives up and re-raises
+
+    For non-connection errors (e.g. SQL syntax), it does NOT retry — those
+    are bugs and retrying won't help.
+    """
+    last_exc = None
+    for attempt in range(max_attempts):
+        conn = _pool.getconn()
+        try:
+            result = operation(conn)
+            _pool.putconn(conn)
+            return result
+        except (OperationalError, InterfaceError) as e:
+            last_exc = e
+            # Discard the dead connection from the pool — close=True ensures
+            # it's actually closed instead of being returned to the pool to
+            # bite the next request.
+            try:
+                _pool.putconn(conn, close=True)
+            except Exception:
+                pass
+            # Try again with a fresh connection
+            continue
+        except Exception:
+            # Non-connection error — return connection to pool, re-raise
+            try:
+                _pool.putconn(conn)
+            except Exception:
+                pass
+            raise
+    # All attempts exhausted
+    raise last_exc
 
 
 def get_next_count() -> int:
@@ -46,8 +106,7 @@ def get_next_count() -> int:
     PostgreSQL processes this as a single indivisible step. Even 1000 simultaneous
     requests each get a unique sequential number.
     """
-    conn = _pool.getconn()
-    try:
+    def _do(conn):
         with conn:  # auto-commits on success, rolls back on exception
             with conn.cursor() as cur:
                 cur.execute(
@@ -57,20 +116,19 @@ def get_next_count() -> int:
                 if row is None:
                     raise RuntimeError("Counter row missing — was init.sql run?")
                 return row[0]
-    finally:
-        _pool.putconn(conn)
+
+    return _execute_with_retry(_do)
 
 
 def check_db_health() -> bool:
-    """Quick liveness check — gets a pooled connection and runs SELECT 1."""
+    """Quick liveness check — runs SELECT 1 with retry on dead connections."""
+    def _do(conn):
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1")
+            cur.fetchone()
+        return True
+
     try:
-        conn = _pool.getconn()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT 1")
-                cur.fetchone()
-            return True
-        finally:
-            _pool.putconn(conn)
+        return _execute_with_retry(_do)
     except Exception:
         return False
