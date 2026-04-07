@@ -1,8 +1,9 @@
-# WHY both blocks must be in this file:
+# WHY all service blocks must be in this file:
 # Caddy's config is a single file. When this is deployed, it REPLACES whatever
-# was on the server before. If we only put the counter block here, the hello-world
-# routing would disappear. Both services share the same Caddy instance on each
-# server, so both must appear in the same Caddyfile.
+# was on the server before. If we only put one block here, the other services'
+# routing would disappear. ALL services that share this Caddy instance must
+# appear in EVERY service repo's Caddyfile, otherwise a deploy of one service
+# breaks routing for the others.
 
 hello-world.rishi.yral.com {
     tls internal
@@ -12,4 +13,9 @@ hello-world.rishi.yral.com {
 hello-world-counter.rishi.yral.com {
     tls internal
     reverse_proxy yral-hello-world-counter:8000
+}
+
+rishi-offline-testing.rishi.yral.com {
+    tls internal
+    reverse_proxy yral-rishi-offline-testing:8000
 }
