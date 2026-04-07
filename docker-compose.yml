@@ -23,6 +23,10 @@ services:
       # SENTRY_DSN is not a critical secret (it only allows sending events,
       # not reading them) so an env var is acceptable.
       SENTRY_DSN: ${SENTRY_DSN:-}
+      # Tag every Sentry event with the git SHA so errors are correlated to
+      # specific deploys. CI sets IMAGE_TAG=${{ github.sha }}.
+      SENTRY_RELEASE: ${IMAGE_TAG:-unknown}
+      SENTRY_ENVIRONMENT: production
     secrets:
       - database_url
     healthcheck:
