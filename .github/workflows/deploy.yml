@@ -132,7 +132,7 @@ jobs:
           host: ${{ secrets.SERVER_1_IP }}
           username: deploy
           key: ${{ secrets.HETZNER_BARE_METAL_GITHUB_ACTIONS_SSH_PRIVATE_KEY }}
-          source: "docker-compose.yml,caddy/Caddyfile,caddy/docker-compose.yml,scripts/ci/deploy-app.sh"
+          source: "docker-compose.yml,caddy/snippet.caddy,scripts/ci/deploy-app.sh"
           target: /home/deploy/yral-hello-world-counter
 
       - name: Deploy app + Caddy on Server 1
@@ -159,7 +159,7 @@ jobs:
           host: ${{ secrets.SERVER_2_IP }}
           username: deploy
           key: ${{ secrets.HETZNER_BARE_METAL_GITHUB_ACTIONS_SSH_PRIVATE_KEY }}
-          source: "docker-compose.yml,caddy/Caddyfile,caddy/docker-compose.yml,scripts/ci/deploy-app.sh"
+          source: "docker-compose.yml,caddy/snippet.caddy,scripts/ci/deploy-app.sh"
           target: /home/deploy/yral-hello-world-counter
 
       - name: Deploy app + Caddy on Server 2

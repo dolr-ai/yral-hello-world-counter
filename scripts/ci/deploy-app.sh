@@ -27,12 +27,35 @@ export IMAGE_TAG="${IMAGE_TAG}"
 SENTRY_DSN="${SENTRY_DSN}" docker compose pull
 SENTRY_DSN="${SENTRY_DSN}" docker compose up -d
 
-# Reload Caddy with the latest Caddyfile (zero-downtime)
-mkdir -p /home/deploy/caddy
-cp caddy/Caddyfile /home/deploy/caddy/Caddyfile
-cp caddy/docker-compose.yml /home/deploy/caddy/docker-compose.yml
-cd /home/deploy/caddy
-docker compose up -d
+# Update counter's Caddy snippet (only THIS file, never the global Caddyfile).
+# Caddy is now a shared platform service managed at /home/deploy/caddy/ via
+# the snippet directory pattern. Counter only owns its own snippet file.
+# Per-app deploys never recreate the Caddy container.
+mkdir -p /home/deploy/caddy/conf.d
+
+SNIPPET_DEST="/home/deploy/caddy/conf.d/yral-hello-world-counter.caddy"
+SNIPPET_TMP="${SNIPPET_DEST}.tmp"
+
+cp /home/deploy/yral-hello-world-counter/caddy/snippet.caddy "${SNIPPET_TMP}"
+
+# Validate Caddy is healthy BEFORE swap — abort if existing config is broken
+docker exec caddy caddy validate --config /etc/caddy/Caddyfile || {
+    echo "FATAL: existing Caddy config invalid before swap, aborting"
+    rm -f "${SNIPPET_TMP}"
+    exit 1
+}
+
+# Atomic swap
+mv "${SNIPPET_TMP}" "${SNIPPET_DEST}"
+
+# Validate AFTER swap — catches snippet syntax errors. If invalid, remove it.
+docker exec caddy caddy validate --config /etc/caddy/Caddyfile || {
+    echo "FATAL: new snippet broke Caddy config, removing"
+    rm -f "${SNIPPET_DEST}"
+    exit 1
+}
+
+# Graceful reload
 docker exec caddy caddy reload --config /etc/caddy/Caddyfile --force
 
-echo "App + Caddy deployed."
+echo "App + Caddy snippet deployed."

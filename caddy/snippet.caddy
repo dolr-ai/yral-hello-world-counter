@@ -1,0 +1,4 @@
+hello-world-counter.rishi.yral.com {
+    tls internal
+    reverse_proxy yral-hello-world-counter:8000
+}
