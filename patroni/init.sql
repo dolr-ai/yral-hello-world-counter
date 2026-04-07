@@ -9,4 +9,5 @@ CREATE TABLE IF NOT EXISTS counter (
 -- The single counter row. Starts at 0.
 -- First visitor triggers: UPDATE value = 0 + 1 → returns 1. Correct.
 -- WHY BIGINT: can count up to 9.2 quintillion visitors. No overflow ever.
-INSERT INTO counter (id, value) VALUES (1, 0);
+-- ON CONFLICT DO NOTHING makes this idempotent in case bootstrap retries.
+INSERT INTO counter (id, value) VALUES (1, 0) ON CONFLICT (id) DO NOTHING;

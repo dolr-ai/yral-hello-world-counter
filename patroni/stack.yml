@@ -23,8 +23,16 @@ services:
       # These tell other Patroni nodes how to reach this one on the overlay network.
       PATRONI_RESTAPI_CONNECT_ADDRESS: "patroni-rishi-1:8008"
       PATRONI_POSTGRESQL_CONNECT_ADDRESS: "patroni-rishi-1:5432"
+      # post_init.sh reads these to set passwords via SQL
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
       REPLICATION_PASSWORD: "${REPLICATION_PASSWORD}"
+      # Patroni's native auth env vars (override patroni.yml)
+      PATRONI_SUPERUSER_USERNAME: postgres
+      PATRONI_SUPERUSER_PASSWORD: "${POSTGRES_PASSWORD}"
+      PATRONI_REPLICATION_USERNAME: replicator
+      PATRONI_REPLICATION_PASSWORD: "${REPLICATION_PASSWORD}"
+      PATRONI_REWIND_USERNAME: rewind_user
+      PATRONI_REWIND_PASSWORD: "${POSTGRES_PASSWORD}"
     volumes:
       - patroni-rishi-1-data:/data/patroni
     networks:
@@ -42,8 +50,16 @@ services:
       PATRONI_NAME: rishi-2
       PATRONI_RESTAPI_CONNECT_ADDRESS: "patroni-rishi-2:8008"
       PATRONI_POSTGRESQL_CONNECT_ADDRESS: "patroni-rishi-2:5432"
+      # post_init.sh reads these to set passwords via SQL
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
       REPLICATION_PASSWORD: "${REPLICATION_PASSWORD}"
+      # Patroni's native auth env vars (override patroni.yml)
+      PATRONI_SUPERUSER_USERNAME: postgres
+      PATRONI_SUPERUSER_PASSWORD: "${POSTGRES_PASSWORD}"
+      PATRONI_REPLICATION_USERNAME: replicator
+      PATRONI_REPLICATION_PASSWORD: "${REPLICATION_PASSWORD}"
+      PATRONI_REWIND_USERNAME: rewind_user
+      PATRONI_REWIND_PASSWORD: "${POSTGRES_PASSWORD}"
     volumes:
       - patroni-rishi-2-data:/data/patroni
     networks:
@@ -61,8 +77,16 @@ services:
       PATRONI_NAME: rishi-3
       PATRONI_RESTAPI_CONNECT_ADDRESS: "patroni-rishi-3:8008"
       PATRONI_POSTGRESQL_CONNECT_ADDRESS: "patroni-rishi-3:5432"
+      # post_init.sh reads these to set passwords via SQL
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
       REPLICATION_PASSWORD: "${REPLICATION_PASSWORD}"
+      # Patroni's native auth env vars (override patroni.yml)
+      PATRONI_SUPERUSER_USERNAME: postgres
+      PATRONI_SUPERUSER_PASSWORD: "${POSTGRES_PASSWORD}"
+      PATRONI_REPLICATION_USERNAME: replicator
+      PATRONI_REPLICATION_PASSWORD: "${REPLICATION_PASSWORD}"
+      PATRONI_REWIND_USERNAME: rewind_user
+      PATRONI_REWIND_PASSWORD: "${POSTGRES_PASSWORD}"
     volumes:
       - patroni-rishi-3-data:/data/patroni
     networks:

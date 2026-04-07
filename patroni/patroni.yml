@@ -51,16 +51,11 @@ postgresql:
   # in each service's stack.yml entry (e.g., patroni-rishi-1:5432).
   data_dir: /data/patroni
   pgpass: /tmp/.pgpass               # file to store passwords for pg_rewind
-  authentication:
-    replication:
-      username: replicator
-      password: ${REPLICATION_PASSWORD}
-    superuser:
-      username: postgres
-      password: ${POSTGRES_PASSWORD}
-    rewind:
-      username: rewind_user
-      password: ${POSTGRES_PASSWORD}
+  # Authentication is configured via Patroni's native env vars in stack.yml:
+  #   PATRONI_REPLICATION_USERNAME / PATRONI_REPLICATION_PASSWORD
+  #   PATRONI_SUPERUSER_USERNAME / PATRONI_SUPERUSER_PASSWORD
+  #   PATRONI_REWIND_USERNAME / PATRONI_REWIND_PASSWORD
+  # YAML ${VAR} interpolation is NOT supported by Patroni — must use env vars.
   parameters:
     unix_socket_directories: '.'
     max_connections: 100
