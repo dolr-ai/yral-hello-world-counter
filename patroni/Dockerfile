@@ -30,8 +30,10 @@ RUN apt-get update && \
 # Create data directory and set postgres user as owner.
 # /data must also be writable by postgres because Patroni renames /data/patroni
 # to /data/patroni.failed if bootstrap fails — that requires write on /data parent.
+# /data/patroni MUST be 0700 — PostgreSQL refuses to start with looser perms.
 RUN mkdir -p /data/patroni /scripts && \
-    chown -R postgres:postgres /data /data/patroni /scripts
+    chown -R postgres:postgres /data /data/patroni /scripts && \
+    chmod 0700 /data/patroni
 
 # Copy config and scripts
 COPY patroni.yml /etc/patroni.yml
