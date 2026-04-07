@@ -93,12 +93,20 @@ services:
       restart_policy:
         condition: any
 
-# Docker Swarm secrets — created externally by CI before stack deploy
+# Docker Swarm secrets — created externally by CI before stack deploy.
+# WHY namespaced names (counter-db_*)?
+# Docker Swarm secrets are CLUSTER-WIDE, not per-stack. If two services
+# share the cluster, they would conflict on a generic name like
+# `postgres_password`. Namespacing with the stack name keeps them isolated.
+# The `target:` keeps the path inside the container as /run/secrets/postgres_password
+# so the entrypoint and post_init.sh don't need to know about the namespace.
 secrets:
   postgres_password:
     external: true
+    name: counter-db_postgres_password
   replication_password:
     external: true
+    name: counter-db_replication_password
 
 networks:
   db-internal:
